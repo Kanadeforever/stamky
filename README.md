@@ -90,8 +90,6 @@ GitHub Actions 使用 `windows-2025-vs2026` 并分别生成 x86/x64 artifact；w
 - Visual Studio 18 2026 + MSVC 的 **x64 Release** Configure/Compile/RC/Link；
 - Windows 10/11 托盘、单实例、任务栏固定、Runtime Shell 菜单、mixed-DPI、Explorer 重启、设置/管理器以及 100 次菜单压力回归。
 
-详见 [`docs/测试说明.md`](docs/测试说明.md)、[`docs/发行前检查清单.md`](docs/发行前检查清单.md) 与 [`docs/GitHub发行步骤.md`](docs/GitHub发行步骤.md)。
-
 ---
 
 ## English
@@ -128,5 +126,3 @@ The official build/test target is **Windows 10+**. The program is not conceptual
 Completed: full source/static audit, translation coverage, cache/data-format boundary review, legacy-brand whitelist review, and release-file consistency checks.
 
 Pending: Windows + MSVC x86/x64 compile/link and real-machine regression testing.
-
-See `docs/静态检查报告.md`, `docs/测试说明.md`, and `docs/完整接档说明.md` for the complete technical handoff.
