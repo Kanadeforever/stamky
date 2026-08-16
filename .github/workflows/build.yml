@@ -1,0 +1,75 @@
+name: Build stamky
+
+on:
+  push:
+    branches: [ "main", "master" ]
+    tags: [ "v*" ]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Windows ${{ matrix.name }} Release
+    runs-on: windows-2025-vs2026
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: x86
+            cmake_arch: Win32
+          - name: x64
+            cmake_arch: x64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Verify CMake / VS2026 generator
+        shell: pwsh
+        run: |
+          cmake --version
+          $help = cmake --help | Out-String
+          if ($help -notmatch "Visual Studio 18 2026") {
+            throw "This runner CMake does not provide the Visual Studio 18 2026 generator (CMake 4.2+ required)."
+          }
+
+      - name: Configure
+        shell: pwsh
+        run: >-
+          cmake -S . -B "build/${{ matrix.name }}"
+          -G "Visual Studio 18 2026"
+          -A "${{ matrix.cmake_arch }}"
+
+      - name: Build Release
+        shell: pwsh
+        run: cmake --build "build/${{ matrix.name }}" --config Release --parallel
+
+      - name: Stage artifact
+        shell: pwsh
+        run: |
+          $src = "build/${{ matrix.name }}/bin/Release/stamky.exe"
+          if (-not (Test-Path $src)) {
+            $src = "build/${{ matrix.name }}/bin/stamky.exe"
+          }
+          if (-not (Test-Path $src)) {
+            throw "stamky.exe was not produced."
+          }
+          $dst = "artifact/stamky-v0.9.3-${{ matrix.name }}"
+          New-Item -ItemType Directory -Force -Path $dst | Out-Null
+          Copy-Item $src "$dst/stamky.exe"
+          Copy-Item README.md "$dst/README.md"
+          Copy-Item 版本.txt "$dst/版本.txt"
+          Copy-Item 项目说明.md "$dst/项目说明.md"
+          Copy-Item docs "$dst/docs" -Recurse
+          (Get-FileHash "$dst/stamky.exe" -Algorithm SHA256).Hash.ToLowerInvariant() |
+            Set-Content -Encoding ascii "$dst/stamky.exe.sha256"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: stamky-v0.9.3-${{ matrix.name }}
+          path: artifact/stamky-v0.9.3-${{ matrix.name }}
+          if-no-files-found: error
