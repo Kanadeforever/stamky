@@ -1,0 +1,33 @@
+#pragma code_page(65001)
+#include <windows.h>
+#define IDI_STAMKY 101
+
+IDI_STAMKY ICON "stamky.ico"
+1 RT_MANIFEST "app.manifest"
+
+VS_VERSION_INFO VERSIONINFO
+ FILEVERSION 0,9,3,0
+ PRODUCTVERSION 0,9,3,0
+ FILEFLAGSMASK 0x3fL
+ FILEFLAGS 0x0L
+ FILEOS 0x40004L
+ FILETYPE 0x1L
+BEGIN
+  BLOCK "StringFileInfo"
+  BEGIN
+    BLOCK "080404B0"
+    BEGIN
+      VALUE "CompanyName", "stamky Community\0"
+      VALUE "FileDescription", "stamky 轻量任务栏分组启动器\0"
+      VALUE "FileVersion", "0.9.3\0"
+      VALUE "InternalName", "stamky\0"
+      VALUE "OriginalFilename", "stamky.exe\0"
+      VALUE "ProductName", "stamky\0"
+      VALUE "ProductVersion", "0.9.3\0"
+    END
+  END
+  BLOCK "VarFileInfo"
+  BEGIN
+    VALUE "Translation", 0x0804, 1200
+  END
+END
