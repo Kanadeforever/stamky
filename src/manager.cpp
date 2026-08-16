@@ -623,6 +623,22 @@ void ManagerWindow::add_subgroup(const std::wstring& parentGroupId,const std::ws
     refresh_items(saved?select:-1);
 }
 
+/* STAMKY_CN_DETAIL
+ * Ctrl+A 只属于右侧 Item ListView：左侧 Group ListView 是 LVS_SINGLESEL，单一高亮组同时决定
+ * 右侧内容上下文，不能把“全选”强行扩展到分组。选择全部项目时只修改 LVIS_SELECTED，保留
+ * 现有焦点行；若列表此前没有焦点行，则把第一行设为 LVIS_FOCUSED，保证随后 Shift/方向键、
+ * Delete 等原生多选操作仍从确定的焦点项继续。行内编辑框存在时不截获 Ctrl+A，让 Edit 控件
+ * 自己执行“全选文本”。
+ */
+void ManagerWindow::select_all_items(){
+    if(!items_||ListView_GetEditControl(items_))return;
+    const int count=ListView_GetItemCount(items_);
+    if(count<=0)return;
+    const int focused=ListView_GetNextItem(items_,-1,LVNI_FOCUSED);
+    ListView_SetItemState(items_,-1,LVIS_SELECTED,LVIS_SELECTED);
+    if(focused<0)ListView_SetItemState(items_,0,LVIS_FOCUSED,LVIS_FOCUSED);
+}
+
 void ManagerWindow::delete_items(){auto*g=selected_group();auto idx=selected_item_actual_indices();if(!g||idx.empty())return;if(MessageBoxW(hwnd_,tr(idx.size()>1?L"删除选中的项目？\\n不会删除原始文件。":L"删除当前项目？\\n不会删除原始文件。").c_str(),tr(L"stamky").c_str(),MB_YESNO|MB_ICONWARNING)!=IDYES)return;for(auto it=idx.rbegin();it!=idx.rend();++it)if(*it>=0&&*it<static_cast<int>(g->items.size()))g->items.erase(g->items.begin()+*it);commit();refresh_items();}
 void ManagerWindow::edit_item(){auto*g=selected_group();int i=selected_item_actual_index();if(!g||i<0||i>=static_cast<int>(g->items.size()))return;auto&it=g->items[i];if(it.type==ItemType::Group){MessageBoxW(hwnd_,tr(L"子组项目的名称来自目标分组。请在左侧重命名目标分组。").c_str(),tr(L"stamky").c_str(),MB_OK|MB_ICONINFORMATION);return;}const auto oldPath=it.path;const auto oldIcon=it.customIcon;if(ItemEditor::edit(hwnd_,it,false,&settings_.launchExtensions)){if(_wcsicmp(oldPath.c_str(),it.path.c_str())!=0||oldIcon!=it.customIcon){icons_.invalidate(it.id);icons_.ensure(it);}commit();refresh_items(i);}}
 void ManagerWindow::refresh_item_icon(){auto*g=selected_group();int i=selected_item_actual_index();if(!g||i<0||i>=static_cast<int>(g->items.size()))return;auto&it=g->items[i];if(it.type==ItemType::Group)return;SetCursor(LoadCursorW(nullptr,IDC_WAIT));icons_.invalidate(it.id);bool ok=icons_.ensure(it);if(onChanged_&&!onChanged_())MessageBoxW(hwnd_,tr(L"图标已刷新，但运行缓存更新失败。").c_str(),tr(L"stamky").c_str(),MB_OK|MB_ICONERROR);SetCursor(LoadCursorW(nullptr,IDC_ARROW));refresh_items(i);if(!ok)MessageBoxW(hwnd_,tr(L"没有从该项目取得可用图标，将继续使用通用图标。").c_str(),tr(L"stamky").c_str(),MB_OK|MB_ICONINFORMATION);}
@@ -761,6 +777,11 @@ bool ManagerWindow::pretranslate(MSG& msg){
         const WPARAM key=msg.wParam;HWND focus=GetFocus();const bool itemFocus=focus==items_||IsChild(items_,focus);const bool groupFocus=focus==groups_||IsChild(groups_,focus);
         if((GetKeyState(VK_CONTROL)&0x8000)&&key=='O'){add_files();return true;}
         if((GetKeyState(VK_CONTROL)&0x8000)&&key=='N'){new_group();return true;}
+        if((GetKeyState(VK_CONTROL)&0x8000)&&key=='A'&&itemFocus){
+            // 输入框正在行内重命名时，Ctrl+A 应继续由 Edit 控件全选文本。
+            if(ListView_GetEditControl(items_))return false;
+            select_all_items();return true;
+        }
         if(key==VK_ESCAPE){
             if(ListView_GetEditControl(items_)||ListView_GetEditControl(groups_))return false;     // 行内编辑中：交给编辑框取消
             DestroyWindow(hwnd_);                                                                  // 否则关闭内容管理
@@ -830,7 +851,7 @@ LRESULT ManagerWindow::proc(HWND h,UINT m,WPARAM w,LPARAM l){
     case WM_DESTROY:DragAcceptFiles(hwnd_,FALSE);if(dragLine_){DestroyWindow(dragLine_);dragLine_=nullptr;}cleanup_visuals();hwnd_=nullptr;groups_=items_=status_=nullptr;return 0;
     case WM_NCDESTROY:SetWindowLongPtrW(h,GWLP_USERDATA,0);return DefWindowProcW(h,m,w,l);
     case WM_COMMAND:{int id=LOWORD(w);switch(id){case IDC_NEWGROUP:new_group();break;case IDC_RENAMEGROUP:rename_group();break;case IDC_DELGROUP:delete_group();break;case IDC_PREVIEW:preview_group();break;case IDC_ADD:show_add_menu();break;case IDC_ADDFILE:add_files();break;case IDC_CUSTOMITEM:new_custom_item();break;case IDC_ADDFOLDER:add_folder();break;case IDC_SCAN:scan_folder();break;case IDC_EDITITEM:edit_item();break;case IDC_DELITEM:delete_items();break;case IDC_UP:move_item(-1);break;case IDC_DOWN:move_item(1);break;case IDC_SHORTCUT:make_shortcut();break;case IDC_SETTINGS:if(openSettings_)openSettings_();break;}return 0;}
-    case WM_KEYDOWN:{HWND focus=GetFocus();const bool itemFocus=focus==items_||IsChild(items_,focus);const bool groupFocus=focus==groups_||IsChild(groups_,focus);if((GetKeyState(VK_CONTROL)&0x8000)&&w=='O'){add_files();return 0;}if((GetKeyState(VK_CONTROL)&0x8000)&&w=='N'){new_group();return 0;}if(w==VK_F2){if(itemFocus)edit_item();else if(groupFocus)rename_group();return 0;}if(w==VK_DELETE){if(itemFocus)delete_items();else if(groupFocus)delete_group();return 0;}if(w==VK_RETURN&&itemFocus){launch_selected();return 0;}break;}
+    case WM_KEYDOWN:{HWND focus=GetFocus();const bool itemFocus=focus==items_||IsChild(items_,focus);const bool groupFocus=focus==groups_||IsChild(groups_,focus);if((GetKeyState(VK_CONTROL)&0x8000)&&w=='O'){add_files();return 0;}if((GetKeyState(VK_CONTROL)&0x8000)&&w=='N'){new_group();return 0;}if((GetKeyState(VK_CONTROL)&0x8000)&&w=='A'&&itemFocus&&!ListView_GetEditControl(items_)){select_all_items();return 0;}if(w==VK_F2){if(itemFocus)edit_item();else if(groupFocus)rename_group();return 0;}if(w==VK_DELETE){if(itemFocus)delete_items();else if(groupFocus)delete_group();return 0;}if(w==VK_RETURN&&itemFocus){launch_selected();return 0;}break;}
     case WM_CONTEXTMENU:{
         // ListView 鼠标右键统一由 NM_RCLICK 处理。Windows 还可能随后把同一次右键转换成
         // WM_CONTEXTMENU；如果这里再次弹菜单，就会形成“执行后还有一层菜单留在屏幕上”的假残影。
@@ -841,7 +862,7 @@ LRESULT ManagerWindow::proc(HWND h,UINT m,WPARAM w,LPARAM l){
         RECT rr{};GetWindowRect(src,&rr);p={rr.left+20,rr.top+20};
         if(src==items_)show_item_context_menu(p);else show_group_context_menu(p);return 0;}
     case WM_NOTIFY:{auto*hdr=reinterpret_cast<NMHDR*>(l);if(hdr->hwndFrom==groups_){if(hdr->code==LVN_ITEMCHANGED){auto*n=reinterpret_cast<NMLISTVIEW*>(l);if((n->uNewState&LVIS_SELECTED)&&!(n->uOldState&LVIS_SELECTED))refresh_items();}else if(hdr->code==LVN_ENDLABELEDITW){auto*n=reinterpret_cast<NMLVDISPINFOW*>(l);if(n->item.pszText&&n->item.pszText[0]){LVITEMW cur{};cur.mask=LVIF_PARAM;cur.iItem=n->item.iItem;if(!ListView_GetItem(groups_,&cur))return FALSE;int i=static_cast<int>(cur.lParam);if(i>=0&&i<static_cast<int>(model_.groups.size())){model_.groups[i].name=n->item.pszText;for(auto&g:model_.groups)for(auto&it:g.items)if(it.type==ItemType::Group&&_wcsicmp(it.targetGroupId.c_str(),model_.groups[i].id.c_str())==0)it.name=model_.groups[i].name;if(!commit()){refresh_groups(i);return FALSE;}refresh_items();return TRUE;}}}else if(hdr->code==NM_DBLCLK){preview_group();}else if(hdr->code==NM_RCLICK){POINT p{};if(GetCursorPos(&p))show_group_context_menu(p);return 0;}else if(hdr->code==LVN_BEGINDRAG){dragging_=true;dragFrom_=selected_group_index();dragList_=groups_;dragRowHeight_=0;SetCapture(hwnd_);if(GetCapture()!=hwnd_){dragging_=false;dragFrom_=-1;dragList_=nullptr;}return 0;}else if(hdr->code==LVN_KEYDOWN){auto*k=reinterpret_cast<NMLVKEYDOWN*>(l);if(k->wVKey==VK_DELETE){delete_group();return 0;}if(k->wVKey==VK_F2){rename_group();return 0;}}}
-        else if(hdr->hwndFrom==items_){if(hdr->code==LVN_ITEMCHANGED){update_action_states();}else if(hdr->code==NM_DBLCLK){launch_selected();return 0;}if(hdr->code==NM_RCLICK){POINT p{};if(GetCursorPos(&p))show_item_context_menu(p);return 0;}if(hdr->code==LVN_KEYDOWN){auto*k=reinterpret_cast<NMLVKEYDOWN*>(l);if(k->wVKey==VK_DELETE){delete_items();return 0;}if(k->wVKey==VK_F2){edit_item();return 0;}if(k->wVKey==VK_RETURN){launch_selected();return 0;}if((GetKeyState(VK_MENU)&0x8000)&&k->wVKey==VK_UP){move_item(-1);return 0;}if((GetKeyState(VK_MENU)&0x8000)&&k->wVKey==VK_DOWN){move_item(1);return 0;}}if(hdr->code==LVN_BEGINLABELEDITW){auto*n=reinterpret_cast<NMLVDISPINFOW*>(l);auto*g=selected_group();LVITEMW cur{};cur.mask=LVIF_PARAM;cur.iItem=n->item.iItem;if(g&&ListView_GetItem(items_,&cur)){const int ai=static_cast<int>(cur.lParam);if(ai>=0&&ai<static_cast<int>(g->items.size())&&g->items[ai].type==ItemType::Group)return TRUE;}}
+        else if(hdr->hwndFrom==items_){if(hdr->code==LVN_ITEMCHANGED){update_action_states();}else if(hdr->code==NM_DBLCLK){launch_selected();return 0;}if(hdr->code==NM_RCLICK){POINT p{};if(GetCursorPos(&p))show_item_context_menu(p);return 0;}if(hdr->code==LVN_KEYDOWN){auto*k=reinterpret_cast<NMLVKEYDOWN*>(l);if((GetKeyState(VK_CONTROL)&0x8000)&&k->wVKey=='A'&&!ListView_GetEditControl(items_)){select_all_items();return 0;}if(k->wVKey==VK_DELETE){delete_items();return 0;}if(k->wVKey==VK_F2){edit_item();return 0;}if(k->wVKey==VK_RETURN){launch_selected();return 0;}if((GetKeyState(VK_MENU)&0x8000)&&k->wVKey==VK_UP){move_item(-1);return 0;}if((GetKeyState(VK_MENU)&0x8000)&&k->wVKey==VK_DOWN){move_item(1);return 0;}}if(hdr->code==LVN_BEGINLABELEDITW){auto*n=reinterpret_cast<NMLVDISPINFOW*>(l);auto*g=selected_group();LVITEMW cur{};cur.mask=LVIF_PARAM;cur.iItem=n->item.iItem;if(g&&ListView_GetItem(items_,&cur)){const int ai=static_cast<int>(cur.lParam);if(ai>=0&&ai<static_cast<int>(g->items.size())&&g->items[ai].type==ItemType::Group)return TRUE;}}
         if(hdr->code==LVN_ENDLABELEDITW){auto*n=reinterpret_cast<NMLVDISPINFOW*>(l);if(n->item.pszText&&n->item.pszText[0]){auto*g=selected_group();LVITEMW cur{};cur.mask=LVIF_PARAM;cur.iItem=n->item.iItem;if(!ListView_GetItem(items_,&cur))return FALSE;int ai=static_cast<int>(cur.lParam);if(g&&ai>=0&&ai<static_cast<int>(g->items.size())&&g->items[ai].type!=ItemType::Group){g->items[ai].name=n->item.pszText;if(!commit()){refresh_items(ai);return FALSE;}return TRUE;}}}else if(hdr->code==LVN_BEGINDRAG){if(selected_item_actual_indices().size()==1){dragging_=true;dragFrom_=selected_item_actual_index();dragList_=items_;dragRowHeight_=0;SetCapture(hwnd_);if(GetCapture()!=hwnd_){dragging_=false;dragFrom_=-1;dragList_=nullptr;}}}}return 0;}
     case WM_MOUSEMOVE:if(dragging_){
         SetCursor(LoadCursorW(nullptr,IDC_SIZEALL));

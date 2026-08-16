@@ -80,6 +80,7 @@ private:
     void scan_folder();
     void add_subgroup(const std::wstring& parentGroupId, const std::wstring& targetGroupId);
     void delete_items();
+    void select_all_items();
     void edit_item();
     void refresh_item_icon();
     void launch_selected();

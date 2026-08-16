@@ -16,6 +16,10 @@
  *
  * 兼容迁移：kLegacyHostClass/kLegacyHostTitle 仅用于发现 UI-06 以前的旧实例；新建窗口、
  * AppUserModelID 与其他正式身份一律使用 stamky。不要为了“清理字符串”删除这些兼容探针。
+ *
+ * 前台激活：任务栏组入口由临时第二实例启动后转发 SHOW。发送方必须 best-effort 把 Windows
+ * 前台激活资格授予常驻 Host 进程；隐藏 Host 本身保持普通 TOOLWINDOW（不使用 NOACTIVATE），
+ * RuntimeMenu 才能在 TrackPopupMenuEx 前切到前台并获得原生方向键/Enter/Esc 菜单导航。
  */
 
 #include "app.h"
@@ -55,6 +59,19 @@ bool App::forward_to_existing(const std::wstring& command){
         if(!h)Sleep(10);
     }
     if(!h)return false;
+
+    // 任务栏“组快捷方式”通常会启动一个很快退出的第二实例，再由它把 SHOW 命令
+    // 转发给已经常驻的 Host。此时 Windows 的前台激活资格属于新实例；如果不把资格
+    // 显式转交给 Host 所在进程，第一实例虽然能弹出 TrackPopupMenuEx，键盘焦点却可能
+    // 仍停在 Explorer/任务栏，表现为方向键完全不能导航菜单。
+    //
+    // AllowSetForegroundWindow 只授予一次前台切换资格，不强行抢焦点；调用方当前没有
+    // 资格时它可能失败，因此这里只做 best-effort。后续 WM_COPYDATA 仍照常发送，鼠标
+    // 路径不会因为激活授权失败而失效。目标 PID 来自刚刚找到的可信 Host HWND。
+    DWORD targetPid=0;
+    GetWindowThreadProcessId(h,&targetPid);
+    if(targetPid)AllowSetForegroundWindow(targetPid);
+
     COPYDATASTRUCT cds{};
     cds.dwData=kCopyDataCommand;
     cds.cbData=static_cast<DWORD>((command.size()+1)*sizeof(wchar_t));
@@ -121,7 +138,12 @@ int App::run(const std::wstring& initialCommand){
     return static_cast<int>(msg.wParam);
 }
 
-bool App::create_host(){WNDCLASSEXW wc{sizeof(wc)};wc.lpfnWndProc=WndProc;wc.hInstance=GetModuleHandleW(nullptr);wc.lpszClassName=kHostClass;wc.hCursor=LoadCursorW(nullptr,IDC_ARROW);if(!RegisterClassExW(&wc)){DWORD e=GetLastError();if(e!=ERROR_CLASS_ALREADY_EXISTS){startup_log(L"RegisterClassExW(Host) 失败："+win32_error_text(e));return false;}}HWND created=CreateWindowExW(WS_EX_TOOLWINDOW|WS_EX_NOACTIVATE,kHostClass,kHostTitle,WS_POPUP,0,0,1,1,nullptr,nullptr,wc.hInstance,this);if(!created){startup_log(L"CreateWindowExW(Host) 失败："+win32_error_text(GetLastError()));return false;}hwnd_=created;return true;}
+bool App::create_host(){WNDCLASSEXW wc{sizeof(wc)};wc.lpfnWndProc=WndProc;wc.hInstance=GetModuleHandleW(nullptr);wc.lpszClassName=kHostClass;wc.hCursor=LoadCursorW(nullptr,IDC_ARROW);if(!RegisterClassExW(&wc)){DWORD e=GetLastError();if(e!=ERROR_CLASS_ALREADY_EXISTS){startup_log(L"RegisterClassExW(Host) 失败："+win32_error_text(e));return false;}}
+    // Host 从不 ShowWindow，WS_EX_TOOLWINDOW 已足够保证它不进入任务栏。这里不能再加
+    // WS_EX_NOACTIVATE：RuntimeMenu::show_once 在 TrackPopupMenuEx 前需要把 Host 所在线程
+    // 可靠切到前台，原生菜单才能接收 ↑/↓/←/→/Enter/Esc。NOACTIVATE 对一个永远隐藏
+    // 的窗口没有用户可见收益，却会破坏任务栏快捷方式转发后的键盘菜单语义。
+    HWND created=CreateWindowExW(WS_EX_TOOLWINDOW,kHostClass,kHostTitle,WS_POPUP,0,0,1,1,nullptr,nullptr,wc.hInstance,this);if(!created){startup_log(L"CreateWindowExW(Host) 失败："+win32_error_text(GetLastError()));return false;}hwnd_=created;return true;}
 LRESULT CALLBACK App::WndProc(HWND h,UINT m,WPARAM w,LPARAM l){auto*self=reinterpret_cast<App*>(GetWindowLongPtrW(h,GWLP_USERDATA));if(m==WM_NCCREATE){self=static_cast<App*>(reinterpret_cast<CREATESTRUCTW*>(l)->lpCreateParams);if(self)self->hwnd_=h;SetWindowLongPtrW(h,GWLP_USERDATA,reinterpret_cast<LONG_PTR>(self));}return self?self->proc(h,m,w,l):DefWindowProcW(h,m,w,l);}
 
 void App::add_tray(){
