@@ -2,6 +2,8 @@
 
 > 原生 C++20 / Win32 的轻量级 Windows 任务栏分组启动器。目标是“点击即出、低内存常驻、列表式管理、可固定多个分组到任务栏”。
 
+<img src="screenshots/screenshot_01.jpg" align="center">
+
 **当前发布状态：源码审核发行候选（Source-audited Release Candidate）。** 2026-08-16 已完成全代码库静态/源码审核并实际修复审核中确认的问题；本打包环境不是 Windows，无法执行 Windows SDK/MSVC 编译，因此 **v0.9.3 的 x86/x64 Compile/Link 与实机回归仍必须由 GitHub Actions 或 Windows 本机确认**。本仓库不会以“完全没有任何 bug”作为验证结论。
 
 ## 中文说明
